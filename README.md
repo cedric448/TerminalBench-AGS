@@ -62,6 +62,46 @@ make run
 make clean
 ```
 
+## 运行效果
+
+以下为实际执行记录（2026-05-08，ap-beijing）：
+
+```
+============================================================
+Terminal Bench Demo - compile-compcert
+Using Tencent Cloud AGS + kimi-k2.5
+============================================================
+
+[main] Step 1: Creating/finding sandbox tool...
+[sandbox_manager] Found existing tool: sdt-bvlaarik       ← AGS 工具复用
+
+[main] Step 2: Starting sandbox instance...
+[sandbox_manager] Instance started: t67c4r5p...           ← 实例秒级启动
+
+[main] Step 3: Waiting for instance to be ready...
+[sandbox_manager] Instance status: RUNNING                ← 镜像已缓存，即时就绪
+
+[main] Step 5: Connecting to sandbox...
+[main] Sandbox health check passed                        ← HTTP 命令服务正常
+
+[main] Step 6: Running agent...
+[agent] Step 1/50 - uname -a                              ← 检测 x86_64 Ubuntu 24.04
+[agent] Step 2/50 - mkdir -p /tmp/CompCert                ← 创建工作目录
+[agent] Step 3/50 - wget CompCert-v3.13.1.tar.gz          ← 下载源码 (2.8MB)
+[agent] Step 4/50 - tar -xzf v3.13.1.tar.gz              ← 解压成功
+[agent] Step 5/50 - apt-get install ocaml coq menhir ...  ← 安装编译依赖
+[agent] Step 6+   - ./configure && make                   ← 配置并编译 (15-25 min)
+
+[main] Step 7: Running verifier...
+[verifier] Reward: 1                                      ← 验证通过
+
+============================================================
+RESULT: PASS
+============================================================
+```
+
+> 完整执行需要 20-40 分钟（主要耗时在 CompCert 编译）。详见 [执行记录](docs/execution-log.md)。
+
 ## 项目结构
 
 ```
@@ -85,6 +125,7 @@ make clean
     ├── architecture.md     # 架构设计文档
     ├── usage.md            # 使用指南
     ├── ags-sdk.md          # AGS SDK 完整参考（云 API + e2b）
+    ├── execution-log.md    # 执行记录与性能观察
     └── troubleshooting.md  # 问题排查
 ```
 
@@ -101,6 +142,7 @@ make clean
 - [架构设计](docs/architecture.md) — 系统架构与组件说明
 - [使用指南](docs/usage.md) — 详细安装与操作步骤
 - [AGS SDK 参考](docs/ags-sdk.md) — 完整的 AGS 云 API 和 e2b SDK 使用示例
+- [执行记录](docs/execution-log.md) — 实际运行过程与性能观察
 - [问题排查](docs/troubleshooting.md) — 常见问题与解决方案
 
 ## 参考资料
