@@ -1,105 +1,112 @@
 # TerminalBench-AGS
 
-Terminal Bench demo running on Tencent Cloud AGS (Agent Sandbox Service). An LLM agent (kimi-k2.5) autonomously completes terminal-based tasks inside a cloud sandbox, with automated verification.
+基于腾讯云 AGS（Agent Sandbox Service）运行 Terminal Bench 评测的完整示例。LLM Agent（kimi-k2.5）在云端沙箱中自主完成终端任务，并自动验证结果。
 
-## Overview
+## 概述
 
-This project demonstrates how to run [Terminal Bench](https://github.com/harbor-framework/terminal-bench-2) evaluations using Tencent Cloud AGS as the sandbox infrastructure. The demo task is **compile-compcert** — building the CompCert verified C compiler from source.
+本项目演示如何使用腾讯云 AGS 作为沙箱基础设施，运行 [Terminal Bench](https://github.com/harbor-framework/terminal-bench-2) 评测任务。示例任务为 **compile-compcert** —— 从源码编译 CompCert 验证型 C 编译器。
 
-### Architecture
+### 架构
 
 ```
 ┌──────────────────────┐     ┌──────────────────────────────┐     ┌──────────────────────┐
-│   LLM Agent          │────▶│  AGS Sandbox                 │────▶│  Verifier            │
-│   (kimi-k2.5)        │◀────│  (custom Docker image)       │     │  (pytest in sandbox) │
+│   LLM Agent          │────▶│  AGS 沙箱                     │────▶│  验证器              │
+│   (kimi-k2.5)        │◀────│  (自定义 Docker 镜像)          │     │  (pytest 验证)       │
 └──────────────────────┘     └──────────────────────────────┘     └──────────────────────┘
 ```
 
-- **Agent**: Uses kimi-k2.5 via Tencent TokenHub (OpenAI-compatible API) with function calling
-- **Sandbox**: AGS custom sandbox tool running ubuntu:24.04 + HTTP command server
-- **Verifier**: Uploads pytest tests and validates CompCert was built correctly
+- **Agent**：通过腾讯 TokenHub 调用 kimi-k2.5（OpenAI 兼容 API），使用 function calling
+- **沙箱**：AGS 自定义沙箱工具，运行 ubuntu:24.04 + HTTP 命令执行服务
+- **验证器**：上传 pytest 测试文件并验证 CompCert 编译结果
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 前置条件
 
 - Python 3.11+
-- Docker (for building sandbox image)
-- Tencent Cloud account with AGS enabled
-- Access to Tencent TokenHub (kimi-k2.5)
+- Docker（用于构建沙箱镜像）
+- 腾讯云账号，已开通 AGS 服务
+- TokenHub 访问权限（kimi-k2.5）
 
-### Setup
+### 安装
 
 ```bash
-# Install dependencies
+# 安装 Python 依赖
 make setup
 
-# Set environment variables
+# 设置环境变量
 export TENCENTCLOUD_SECRET_ID="your_secret_id"
 export TENCENTCLOUD_SECRET_KEY="your_secret_key"
 export TENCENTCLOUD_REGION="ap-beijing"
 
-# Build and push Docker image (first time only)
+# 构建并推送 Docker 镜像（首次使用）
 make build-push
 ```
 
-### Run
+### 运行
 
 ```bash
 make run
 ```
 
-This will:
-1. Create an AGS sandbox tool (or reuse existing)
-2. Start a sandbox instance
-3. Run the LLM agent to build CompCert
-4. Verify the build with pytest
-5. Report PASS/FAIL and cleanup
+执行流程：
+1. 创建 AGS 沙箱工具（或复用已有工具）
+2. 启动沙箱实例
+3. LLM Agent 执行编译任务
+4. 运行 pytest 验证
+5. 输出 PASS/FAIL 结果并清理
 
-### Cleanup
+### 清理资源
 
 ```bash
 make clean
 ```
 
-## Project Structure
+## 项目结构
 
 ```
 .
-├── README.md
-├── Dockerfile              # Sandbox container image
-├── Makefile                # Build, push, run commands
-├── requirements.txt        # Python dependencies
+├── README.md               # 项目说明
+├── Dockerfile              # 沙箱容器镜像
+├── Makefile                # 构建、推送、运行命令
+├── requirements.txt        # Python 依赖
 ├── src/
-│   ├── run_bench.py        # Main orchestrator
-│   ├── agent.py            # LLM agent (kimi-k2.5 + function calling)
-│   ├── sandbox_manager.py  # AGS control plane (create tool, start/stop instance)
-│   ├── sandbox_client.py   # HTTP client for sandbox command execution
-│   ├── cmd_server.py       # In-container HTTP command server
-│   ├── verifier.py         # Test verification runner
+│   ├── run_bench.py        # 主编排器
+│   ├── agent.py            # LLM Agent（kimi-k2.5 + function calling）
+│   ├── sandbox_manager.py  # AGS 控制面（创建工具、启停实例）
+│   ├── sandbox_client.py   # HTTP 客户端（沙箱命令执行）
+│   ├── cmd_server.py       # 容器内 HTTP 命令服务器
+│   ├── verifier.py         # 测试验证运行器
 │   └── tests/
-│       ├── test_outputs.py     # Pytest verification suite
-│       ├── positive_probe.c    # CompCert compilation test
-│       └── negative_probe.c    # VLA rejection test
+│       ├── test_outputs.py     # pytest 验证套件
+│       ├── positive_probe.c    # CompCert 编译测试
+│       └── negative_probe.c    # VLA 拒绝测试
 └── docs/
-    ├── architecture.md     # System architecture
-    ├── usage.md            # Detailed usage guide
-    └── troubleshooting.md  # Common issues and fixes
+    ├── architecture.md     # 架构设计文档
+    ├── usage.md            # 使用指南
+    ├── ags-sdk.md          # AGS SDK 完整参考（云 API + e2b）
+    └── troubleshooting.md  # 问题排查
 ```
 
-## Configuration
+## 配置项
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `TENCENTCLOUD_SECRET_ID` | Tencent Cloud SecretId | (required) |
-| `TENCENTCLOUD_SECRET_KEY` | Tencent Cloud SecretKey | (required) |
-| `TENCENTCLOUD_REGION` | AGS region | `ap-beijing` |
+| 环境变量 | 说明 | 默认值 |
+|---------|------|--------|
+| `TENCENTCLOUD_SECRET_ID` | 腾讯云 SecretId | （必填） |
+| `TENCENTCLOUD_SECRET_KEY` | 腾讯云 SecretKey | （必填） |
+| `TENCENTCLOUD_REGION` | AGS 地域 | `ap-beijing` |
 
-## Documentation
+## 文档
 
-- [Architecture](docs/architecture.md) - System design and component overview
-- [Usage Guide](docs/usage.md) - Detailed setup and operation guide
-- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+- [架构设计](docs/architecture.md) — 系统架构与组件说明
+- [使用指南](docs/usage.md) — 详细安装与操作步骤
+- [AGS SDK 参考](docs/ags-sdk.md) — 完整的 AGS 云 API 和 e2b SDK 使用示例
+- [问题排查](docs/troubleshooting.md) — 常见问题与解决方案
+
+## 参考资料
+
+- [AGS Cookbook](https://github.com/TencentCloudAgentRuntime/ags-cookbook) — 腾讯云 AGS 官方示例
+- [Terminal Bench](https://github.com/harbor-framework/terminal-bench-2) — Terminal Bench 评测框架
 
 ## License
 

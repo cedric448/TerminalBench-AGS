@@ -1,30 +1,30 @@
-# Usage Guide
+# 使用指南
 
-## Prerequisites
+## 前置条件
 
-1. **Python 3.11+** with pip
-2. **Docker** installed and running
-3. **Tencent Cloud Account** with:
-   - AGS service enabled in ap-beijing region
-   - SecretId/SecretKey with AGS permissions
-   - TCR (Tencent Container Registry) instance for custom images
-   - CAM Role allowing AGS to pull from TCR
-4. **TokenHub Access** for kimi-k2.5 model
+1. **Python 3.11+**（含 pip）
+2. **Docker**（已安装并运行）
+3. **腾讯云账号**，需要：
+   - ap-beijing 地域已开通 AGS 服务
+   - 具有 AGS 权限的 SecretId/SecretKey
+   - TCR（腾讯容器镜像服务）实例用于存储自定义镜像
+   - CAM 角色允许 AGS 从 TCR 拉取镜像
+4. **TokenHub 访问权限**（kimi-k2.5 模型）
 
-## Initial Setup
+## 初始安装
 
-### 1. Install Python Dependencies
+### 1. 安装 Python 依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-This installs:
-- `tencentcloud-sdk-python>=3.1.32` — AGS control plane SDK
-- `openai>=1.0.0` — LLM API client (OpenAI-compatible)
-- `requests` — HTTP client for sandbox communication
+安装内容：
+- `tencentcloud-sdk-python>=3.1.32` — AGS 控制面 SDK
+- `openai>=1.0.0` — LLM API 客户端（OpenAI 兼容）
+- `requests` — HTTP 客户端
 
-### 2. Configure Environment Variables
+### 2. 配置环境变量
 
 ```bash
 export TENCENTCLOUD_SECRET_ID="your_secret_id"
@@ -32,59 +32,59 @@ export TENCENTCLOUD_SECRET_KEY="your_secret_key"
 export TENCENTCLOUD_REGION="ap-beijing"
 ```
 
-### 3. Build and Push Docker Image
+### 3. 构建并推送 Docker 镜像
 
-First time only (or when updating the sandbox image):
+首次使用（或更新沙箱镜像时）：
 
 ```bash
-# Login to TCR
-docker login lily-tcr.tencentcloudcr.com --username <your_username> --password <your_token>
+# 登录 TCR
+docker login lily-tcr.tencentcloudcr.com --username <用户名> --password <令牌>
 
-# Build image
+# 构建镜像
 make build
 
-# Push to registry
+# 推送到仓库
 make push
 ```
 
-The Dockerfile creates a minimal ubuntu:24.04 image with python3, curl, wget, git, and the command execution server.
+Dockerfile 创建了一个最小化的 ubuntu:24.04 镜像，包含 python3、curl、wget、git 和命令执行服务。
 
-### 4. TCR Namespace Setup
+### 4. TCR 命名空间
 
-Ensure the `terminalbench` namespace exists in your TCR registry. Create it via the TCR console if needed.
+确保 TCR 仓库中存在 `terminalbench` 命名空间。如不存在，通过 TCR 控制台创建。
 
-### 5. CAM Role Setup
+### 5. CAM 角色配置
 
-AGS needs a role to pull images from your TCR. The role ARN should be configured in `src/sandbox_manager.py`:
+AGS 需要一个角色来拉取 TCR 中的镜像。在 `src/sandbox_manager.py` 中配置角色 ARN：
 
 ```python
 ROLE_ARN = "qcs::cam::uin/<your_uin>:roleName/<your_role>"
 ```
 
-## Running the Benchmark
+## 运行 Benchmark
 
-### Full Run
+### 完整运行
 
 ```bash
 make run
 ```
 
-Or directly:
+或直接：
 
 ```bash
 cd src && python run_bench.py
 ```
 
-### What Happens
+### 执行过程
 
-1. **Tool Creation** — Creates an AGS sandbox tool (skipped if already exists)
-2. **Instance Start** — Launches a sandbox container from the tool
-3. **Wait for Ready** — Polls until instance is RUNNING and health check passes
-4. **Agent Execution** — LLM agent receives the task instruction and starts executing commands
-5. **Verification** — Uploads test files and runs pytest to validate the build
-6. **Cleanup** — Stops the sandbox instance
+1. **创建工具** — 创建 AGS 沙箱工具（已存在则跳过）
+2. **启动实例** — 从工具启动沙箱容器
+3. **等待就绪** — 轮询直到实例 RUNNING 且健康检查通过
+4. **Agent 执行** — LLM Agent 接收任务指令并开始执行命令
+5. **验证** — 上传测试文件并运行 pytest 验证编译结果
+6. **清理** — 停止沙箱实例
 
-### Expected Output
+### 预期输出
 
 ```
 ============================================================
@@ -110,7 +110,7 @@ Using Tencent Cloud AGS + kimi-k2.5
 [agent] Step 1/50 (elapsed: 0s)
 [agent] Executing: uname -a && mkdir -p /tmp/CompCert
 ...
-(agent executes ~15-30 steps over 15-40 minutes)
+（Agent 执行约 15-30 步，耗时 15-40 分钟）
 ...
 [agent] Agent finished: Task is complete.
 
@@ -126,48 +126,48 @@ Reward: 1
 ============================================================
 ```
 
-### Cleanup Resources
+### 清理资源
 
 ```bash
 make clean
 ```
 
-This stops all running instances and deletes the sandbox tool.
+停止所有运行中的实例并删除沙箱工具。
 
-## Customization
+## 自定义配置
 
-### Changing the LLM Model
+### 更换 LLM 模型
 
-Edit `src/agent.py`:
+编辑 `src/agent.py`：
 
 ```python
 client = OpenAI(
     api_key="your_api_key",
     base_url="your_base_url"
 )
-# In the create call:
+# 在 create 调用中：
 model="your-model-name"
 ```
 
-### Changing the Task
+### 更换任务
 
-Edit the `INSTRUCTION` variable in `src/run_bench.py`:
+编辑 `src/run_bench.py` 中的 `INSTRUCTION` 变量：
 
 ```python
-INSTRUCTION = """Your custom task instruction here."""
+INSTRUCTION = """你的自定义任务指令"""
 ```
 
-### Adjusting Timeouts
+### 调整超时
 
-In `src/agent.py`:
-- `MAX_STEPS = 50` — Maximum agent iterations
-- `AGENT_TIMEOUT = 2400` — Total agent timeout (seconds)
-- `COMMAND_TIMEOUT = 300` — Per-command timeout (seconds)
+在 `src/agent.py` 中：
+- `MAX_STEPS = 50` — 最大 Agent 迭代次数
+- `AGENT_TIMEOUT = 2400` — Agent 总超时（秒）
+- `COMMAND_TIMEOUT = 300` — 单条命令超时（秒）
 
-### Changing Sandbox Resources
+### 调整沙箱资源
 
-In `src/sandbox_manager.py`:
+在 `src/sandbox_manager.py` 中：
 ```python
-resource_config.CPU = "4"       # CPU cores
-resource_config.Memory = "8Gi"  # Memory
+resource_config.CPU = "4"       # CPU 核数
+resource_config.Memory = "8Gi"  # 内存
 ```

@@ -1,30 +1,30 @@
-# Architecture
+# 架构设计
 
-## System Overview
+## 系统总览
 
-TerminalBench-AGS is an end-to-end benchmark runner that evaluates LLM agents on terminal-based tasks using Tencent Cloud AGS (Agent Sandbox Service) as the execution environment.
+TerminalBench-AGS 是一个端到端的 Benchmark 运行器，使用腾讯云 AGS（Agent Sandbox Service）作为执行环境，评估 LLM Agent 在终端任务上的表现。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        Host Machine                                   │
+│                          宿主机                                       │
 │                                                                       │
 │  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────────┐ │
-│  │ run_bench.py│───▶│sandbox_mgr.py│───▶│ AGS Control Plane API   │ │
-│  │ Orchestrator│    │              │    │ (ags.tencentcloudapi.com)│ │
+│  │ run_bench.py│───▶│sandbox_mgr.py│───▶│ AGS 控制面 API          │ │
+│  │ 编排器      │    │              │    │ (ags.tencentcloudapi.com)│ │
 │  └──────┬──────┘    └──────────────┘    └─────────────────────────┘ │
 │         │                                                             │
 │         ▼                                                             │
 │  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────────┐ │
-│  │  agent.py   │───▶│sandbox_cli.py│───▶│ AGS Data Plane (HTTP)   │ │
-│  │ LLM Agent   │    │ HTTP Client  │    │ 8080-{id}.{r}.tencentags│ │
+│  │  agent.py   │───▶│sandbox_cli.py│───▶│ AGS 数据面 (HTTP)       │ │
+│  │ LLM Agent   │    │ HTTP 客户端  │    │ 8080-{id}.{r}.tencentags│ │
 │  └──────┬──────┘    └──────────────┘    └────────────┬────────────┘ │
 │         │                                             │               │
 │         ▼                                             ▼               │
 │  ┌─────────────┐                        ┌─────────────────────────┐ │
-│  │ verifier.py │                        │   AGS Sandbox Instance  │ │
-│  │ Test Runner │                        │  ┌───────────────────┐  │ │
+│  │ verifier.py │                        │   AGS 沙箱实例           │ │
+│  │ 验证器      │                        │  ┌───────────────────┐  │ │
 │  └─────────────┘                        │  │  cmd_server.py    │  │ │
-│                                          │  │  (port 8080)      │  │ │
+│                                          │  │  (端口 8080)      │  │ │
 │                                          │  │  GET /health      │  │ │
 │                                          │  │  POST /exec       │  │ │
 │                                          │  │  POST /upload     │  │ │
@@ -34,96 +34,96 @@ TerminalBench-AGS is an end-to-end benchmark runner that evaluates LLM agents on
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Components
+## 核心组件
 
-### 1. Orchestrator (`run_bench.py`)
+### 1. 编排器 (`run_bench.py`)
 
-The main entry point that coordinates the full benchmark lifecycle:
-1. Create/find AGS sandbox tool
-2. Start sandbox instance and wait for ready
-3. Acquire access token
-4. Run the LLM agent
-5. Run verification tests
-6. Report results and cleanup
+主入口，协调整个 Benchmark 生命周期：
+1. 创建/查找 AGS 沙箱工具
+2. 启动沙箱实例并等待就绪
+3. 获取访问令牌
+4. 运行 LLM Agent
+5. 运行验证测试
+6. 输出结果并清理
 
-### 2. Sandbox Manager (`sandbox_manager.py`)
+### 2. 沙箱管理器 (`sandbox_manager.py`)
 
-Handles AGS control plane operations via `tencentcloud-sdk-python`:
+通过 `tencentcloud-sdk-python` 操作 AGS 控制面：
 
-- **CreateSandboxTool** — Registers a custom sandbox tool with Docker image, health probe, and resource config
-- **StartSandboxInstance** — Launches a sandbox instance from the tool
-- **DescribeSandboxInstanceList** — Polls instance status until RUNNING
-- **AcquireSandboxInstanceToken** — Gets HTTP access token
-- **StopSandboxInstance** — Stops and cleans up instances
-- **DeleteSandboxTool** — Removes the tool definition
+- **CreateSandboxTool** — 注册自定义沙箱工具（Docker 镜像、健康探针、资源配置）
+- **StartSandboxInstance** — 从工具启动沙箱实例
+- **DescribeSandboxInstanceList** — 轮询实例状态直到 RUNNING
+- **AcquireSandboxInstanceToken** — 获取 HTTP 访问令牌
+- **StopSandboxInstance** — 停止并清理实例
+- **DeleteSandboxTool** — 删除工具定义
 
-### 3. Sandbox Client (`sandbox_client.py`)
+### 3. 沙箱客户端 (`sandbox_client.py`)
 
-HTTP client that communicates with `cmd_server.py` inside the sandbox:
+HTTP 客户端，与容器内的 `cmd_server.py` 通信：
 
-- `exec_command(cmd)` — Execute bash commands, returns stdout/stderr/exit_code
-- `upload_file(local, remote)` — Upload files to sandbox (base64 encoded)
-- `download_file(remote)` — Download files from sandbox
-- `health_check()` — Verify sandbox is responsive
+- `exec_command(cmd)` — 执行 bash 命令，返回 stdout/stderr/exit_code
+- `upload_file(local, remote)` — 上传文件到沙箱（base64 编码）
+- `download_file(remote)` — 从沙箱下载文件
+- `health_check()` — 验证沙箱是否响应
 
-### 4. Command Server (`cmd_server.py`)
+### 4. 命令服务器 (`cmd_server.py`)
 
-Runs inside the Docker container. A minimal HTTP server (Python stdlib only) providing:
+运行在 Docker 容器内的最小化 HTTP 服务器（仅使用 Python 标准库）：
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/health` | GET | Readiness probe for AGS |
-| `/exec` | POST | Execute shell commands |
-| `/upload` | POST | Upload files (base64) |
-| `/download` | GET | Download files |
+| 端点 | 方法 | 用途 |
+|------|------|------|
+| `/health` | GET | AGS 就绪探针 |
+| `/exec` | POST | 执行 shell 命令 |
+| `/upload` | POST | 上传文件（base64） |
+| `/download` | GET | 下载文件 |
 
 ### 5. LLM Agent (`agent.py`)
 
-An agentic loop using kimi-k2.5 (via TokenHub OpenAI-compatible API):
+使用 kimi-k2.5（通过 TokenHub OpenAI 兼容 API）的 Agent 循环：
 
-- System prompt instructs the agent to complete terminal tasks
-- Single tool: `execute_command(command: str)`
-- Loop: LLM generates tool_call → execute in sandbox → return result → repeat
-- Terminates when LLM responds without tool_call or max steps reached
-- Timeout: 2400s (40 min), Max steps: 50
+- 系统提示词指导 Agent 完成终端任务
+- 单一工具：`execute_command(command: str)`
+- 循环：LLM 生成 tool_call → 在沙箱执行 → 返回结果 → 重复
+- 终止条件：LLM 不再调用工具 或 达到最大步数
+- 超时：2400s（40 分钟），最大步数：50
 
-### 6. Verifier (`verifier.py`)
+### 6. 验证器 (`verifier.py`)
 
-After the agent finishes, runs verification:
-1. Uploads test files to sandbox
-2. Installs pytest via uv
-3. Runs test suite checking CompCert installation
-4. Returns reward: 1 (pass) or 0 (fail)
+Agent 完成后运行验证：
+1. 上传测试文件到沙箱
+2. 通过 uv 安装 pytest
+3. 运行测试套件检查 CompCert 安装
+4. 返回奖励值：1（通过）或 0（失败）
 
-## Data Flow
+## 数据流
 
 ```
-1. Orchestrator creates AGS tool (one-time)
-2. Orchestrator starts instance → AGS pulls Docker image → container starts
-3. AGS health probe hits cmd_server /health → instance marked RUNNING
-4. Agent calls kimi-k2.5 API → gets tool_call → sandbox_client POSTs to /exec
-5. cmd_server runs bash command → returns JSON response
-6. Agent loop continues until task complete
-7. Verifier uploads tests → runs pytest → collects reward
-8. Orchestrator stops instance
+1. 编排器创建 AGS 工具（一次性）
+2. 编排器启动实例 → AGS 拉取 Docker 镜像 → 容器启动
+3. AGS 健康探针访问 cmd_server /health → 实例标记为 RUNNING
+4. Agent 调用 kimi-k2.5 API → 获取 tool_call → sandbox_client POST 到 /exec
+5. cmd_server 执行 bash 命令 → 返回 JSON 响应
+6. Agent 循环继续直到任务完成
+7. 验证器上传测试 → 运行 pytest → 收集奖励
+8. 编排器停止实例
 ```
 
-## AGS Configuration
+## AGS 配置参数
 
-| Parameter | Value |
-|-----------|-------|
-| Tool Name | `terminal-bench-compcert` |
-| Image | `lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:latest` |
-| Registry Type | enterprise |
-| Resources | 2 CPU, 4Gi memory |
-| Network | PUBLIC (internet access for downloads) |
-| Probe | HTTP GET /health:8080 |
-| Timeout | 40 minutes |
+| 参数 | 值 |
+|------|---|
+| 工具名称 | `terminal-bench-compcert` |
+| 镜像 | `lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:latest` |
+| 镜像仓库类型 | enterprise |
+| 资源 | 2 CPU, 4Gi 内存 |
+| 网络 | PUBLIC（需要公网下载源码） |
+| 探针 | HTTP GET /health:8080 |
+| 超时 | 40 分钟 |
 | RoleArn | `qcs::cam::uin/100008634787:roleName/ags-tcr-full` |
 
-## Security Notes
+## 安全说明
 
-- The sandbox runs with internet access (needed to download CompCert sources)
-- Command execution has a per-command timeout (300s default)
-- The container runs as root (required for apt-get)
-- Access to the sandbox requires a time-limited token from AGS
+- 沙箱具有公网访问权限（需要下载 CompCert 源码）
+- 每条命令有独立超时（默认 300s）
+- 容器以 root 运行（apt-get 需要）
+- 沙箱访问需要 AGS 颁发的限时令牌
