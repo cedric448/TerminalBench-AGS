@@ -25,14 +25,34 @@ TerminalBench-AGS 是一个端到端的 Benchmark 运行器，使用腾讯云 AG
 │  │ 验证器      │                        │  ┌───────────────────┐  │ │
 │  └─────────────┘                        │  │  cmd_server.py    │  │ │
 │                                          │  │  (端口 8080)      │  │ │
-│                                          │  │  GET /health      │  │ │
-│                                          │  │  POST /exec       │  │ │
-│                                          │  │  POST /upload     │  │ │
-│                                          │  │  GET /download    │  │ │
+│                                          │  └───────────────────┘  │ │
+│                                          │                          │ │
+│                                          │  ┌───────────────────┐  │ │
+│                                          │  │  /task (volume)   │  │ │
+│                                          │  │  task image mount │  │ │
 │                                          │  └───────────────────┘  │ │
 │                                          └─────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## 镜像架构
+
+采用双镜像分离设计：
+
+### 基础镜像（Base Image）
+- **镜像**：`lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:v6`
+- **注册类型**：enterprise
+- **内容**：Ubuntu 24.04 + python3/curl/wget/git + cmd_server.py
+- **职责**：提供运行时环境和 HTTP 命令执行服务
+
+### 任务镜像（Task Image）— StorageVolume 挂载
+- **镜像**：`lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1`
+- **注册类型**：enterprise
+- **挂载路径**：`/task`
+- **内容**：测试文件（test_outputs.py, probe.c）和任务指令（instruction.md）
+- **职责**：承载可独立更新的评测内容
+
+这种设计使得更换评测任务只需替换任务镜像，无需重建基础运行时。
 
 ## 核心组件
 
@@ -50,7 +70,7 @@ TerminalBench-AGS 是一个端到端的 Benchmark 运行器，使用腾讯云 AG
 
 通过 `tencentcloud-sdk-python` 操作 AGS 控制面：
 
-- **CreateSandboxTool** — 注册自定义沙箱工具（Docker 镜像、健康探针、资源配置）
+- **CreateSandboxTool** — 注册自定义沙箱工具（Docker 镜像、StorageMounts、健康探针、资源配置）
 - **StartSandboxInstance** — 从工具启动沙箱实例
 - **DescribeSandboxInstanceList** — 轮询实例状态直到 RUNNING
 - **AcquireSandboxInstanceToken** — 获取 HTTP 访问令牌
@@ -98,8 +118,8 @@ Agent 完成后运行验证：
 ## 数据流
 
 ```
-1. 编排器创建 AGS 工具（一次性）
-2. 编排器启动实例 → AGS 拉取 Docker 镜像 → 容器启动
+1. 编排器创建 AGS 工具（一次性），配置 StorageMounts 挂载任务镜像
+2. 编排器启动实例 → AGS 拉取基础镜像 + 挂载任务镜像卷 → 容器启动
 3. AGS 健康探针访问 cmd_server /health → 实例标记为 RUNNING
 4. Agent 调用 kimi-k2.5 API → 获取 tool_call → sandbox_client POST 到 /exec
 5. cmd_server 执行 bash 命令 → 返回 JSON 响应
@@ -112,14 +132,34 @@ Agent 完成后运行验证：
 
 | 参数 | 值 |
 |------|---|
-| 工具名称 | `terminal-bench-compcert` |
-| 镜像 | `lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:latest` |
+| 工具名称 | `tb-compcert-v6` |
+| 基础镜像 | `lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:v6` |
+| 任务镜像（卷） | `lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1` |
 | 镜像仓库类型 | enterprise |
+| 卷挂载路径 | `/task` |
 | 资源 | 2 CPU, 4Gi 内存 |
 | 网络 | PUBLIC（需要公网下载源码） |
 | 探针 | HTTP GET /health:8080 |
 | 超时 | 40 分钟 |
 | RoleArn | `qcs::cam::uin/100008634787:roleName/ags-tcr-full` |
+
+## StorageVolume 挂载
+
+参考 [terminal-bench-2](https://github.com/harbor-framework/terminal-bench-2) 的架构设计，任务镜像通过 AGS `StorageMounts` API 以只读卷的形式挂载到沙箱容器中：
+
+```python
+# 在 CreateSandboxToolRequest 上配置（非 CustomConfiguration）
+storage_mount = models.StorageMount()
+storage_mount.Name = "task-image"
+storage_source = models.StorageSource()
+image_source = models.ImageStorageSource()
+image_source.Reference = "lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1"
+image_source.ImageRegistryType = "enterprise"
+storage_source.Image = image_source
+storage_mount.StorageSource = storage_source
+storage_mount.MountPath = "/task"
+req.StorageMounts = [storage_mount]
+```
 
 ## 安全说明
 

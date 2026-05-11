@@ -1,6 +1,14 @@
 """
 AGS Sandbox Manager - Control plane operations for Tencent Cloud AGS.
 Handles sandbox tool creation, instance lifecycle, and access token management.
+
+Architecture:
+- Base image: lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:v6 (enterprise)
+  - Ubuntu 24.04 + python3/curl/wget/git + cmd_server.py on port 8080
+  - Also contains /tests/ and /instruction.md directly
+- Task image: lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1 (enterprise)
+  - Mounted as StorageVolume at /task
+  - Contains /task/tests/ and /task/instruction.md
 """
 
 import os
@@ -16,8 +24,9 @@ from tencentcloud.ags.v20250920 import ags_client, models
 
 # Configuration
 REGION = os.environ.get("TENCENTCLOUD_REGION", "ap-beijing")
-TOOL_NAME = "terminal-bench-compcert"
-IMAGE = "lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:latest"
+TOOL_NAME = "tb-compcert-v6"
+BASE_IMAGE = "lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:v6"
+TASK_IMAGE = "lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1"
 IMAGE_REGISTRY_TYPE = "enterprise"
 ROLE_ARN = "qcs::cam::uin/100008634787:roleName/ags-tcr-full"
 DEFAULT_TIMEOUT = "40m"
@@ -38,24 +47,27 @@ def get_client():
 
 
 def create_sandbox_tool(client):
-    """Create a custom sandbox tool with the Terminal Bench image."""
+    """Create a custom sandbox tool with enterprise base + task volume mount."""
     req = models.CreateSandboxToolRequest()
     req.ToolName = TOOL_NAME
     req.ToolType = "custom"
-    req.Description = "Terminal Bench compile-compcert sandbox"
+    req.Description = "Terminal Bench compile-compcert (enterprise base + task volume)"
     req.DefaultTimeout = DEFAULT_TIMEOUT
     req.RoleArn = ROLE_ARN
 
     # Custom image configuration
     custom_config = models.CustomConfiguration()
-    custom_config.Image = IMAGE
+    custom_config.Image = BASE_IMAGE
     custom_config.ImageRegistryType = IMAGE_REGISTRY_TYPE
     custom_config.Command = ["python3"]
     custom_config.Args = ["/cmd_server.py"]
-    custom_config.Ports = [models.PortConfiguration()]
-    custom_config.Ports[0].Name = "http"
-    custom_config.Ports[0].Port = 8080
-    custom_config.Ports[0].Protocol = "TCP"
+
+    # Port declaration
+    port1 = models.PortConfiguration()
+    port1.Name = "http"
+    port1.Port = 8080
+    port1.Protocol = "TCP"
+    custom_config.Ports = [port1]
 
     # Environment variables
     env_vars = []
@@ -76,7 +88,7 @@ def create_sandbox_tool(client):
     resource_config.Memory = "4Gi"
     custom_config.Resources = resource_config
 
-    # Health probe (required for custom tools)
+    # Health probe on cmd_server port 8080
     probe_config = models.ProbeConfiguration()
     http_get = models.HttpGetAction()
     http_get.Path = "/health"
@@ -91,6 +103,18 @@ def create_sandbox_tool(client):
     custom_config.Probe = probe_config
 
     req.CustomConfiguration = custom_config
+
+    # Storage mount - task image as volume
+    storage_mount = models.StorageMount()
+    storage_mount.Name = "task-image"
+    storage_source = models.StorageSource()
+    image_source = models.ImageStorageSource()
+    image_source.Reference = TASK_IMAGE
+    image_source.ImageRegistryType = IMAGE_REGISTRY_TYPE
+    storage_source.Image = image_source
+    storage_mount.StorageSource = storage_source
+    storage_mount.MountPath = "/task"
+    req.StorageMounts = [storage_mount]
 
     # Network - public access needed for downloading sources
     network_config = models.NetworkConfiguration()
@@ -112,7 +136,7 @@ def find_existing_tool(client):
         if resp.SandboxToolSet:
             for tool in resp.SandboxToolSet:
                 if tool.ToolName == TOOL_NAME:
-                    print(f"[sandbox_manager] Found existing tool: {tool.ToolId}")
+                    print(f"[sandbox_manager] Found existing tool: {tool.ToolId} (status: {tool.Status})")
                     return tool.ToolId
     except TencentCloudSDKException as e:
         print(f"[sandbox_manager] Error listing tools: {e}")
@@ -131,7 +155,7 @@ def create_or_get_tool():
     return tool_id
 
 
-def wait_for_tool_active(tool_id, timeout=60):
+def wait_for_tool_active(tool_id, timeout=120):
     """Wait for a tool to become ACTIVE status."""
     client = get_client()
     start_time = time.time()
@@ -147,7 +171,8 @@ def wait_for_tool_active(tool_id, timeout=60):
             if status == "ACTIVE":
                 return True
             elif status in ("FAILED",):
-                raise RuntimeError(f"Tool creation failed: {status}")
+                reason = resp.SandboxToolSet[0].StatusReason if hasattr(resp.SandboxToolSet[0], 'StatusReason') else "unknown"
+                raise RuntimeError(f"Tool creation failed: {status}, reason: {reason}")
         time.sleep(3)
     raise TimeoutError(f"Tool {tool_id} not active after {timeout}s")
 
@@ -165,7 +190,7 @@ def start_instance(tool_id):
     return instance_id
 
 
-def wait_for_ready(instance_id, timeout=120):
+def wait_for_ready(instance_id, timeout=180):
     """Wait for instance to reach RUNNING status."""
     client = get_client()
     start_time = time.time()
@@ -225,6 +250,22 @@ def delete_tool(tool_id):
         print(f"[sandbox_manager] Error deleting tool: {e}")
 
 
+def stop_all_instances():
+    """Stop all running instances to free quota."""
+    client = get_client()
+    req = models.DescribeSandboxInstanceListRequest()
+    req.Limit = 100
+    req.Offset = 0
+    try:
+        resp = client.DescribeSandboxInstanceList(req)
+        if resp.InstanceSet:
+            for inst in resp.InstanceSet:
+                if inst.Status == "RUNNING":
+                    stop_instance(inst.InstanceId)
+    except TencentCloudSDKException as e:
+        print(f"[sandbox_manager] Error listing instances: {e}")
+
+
 def cleanup():
     """Full cleanup: stop all instances and delete tool."""
     client = get_client()
@@ -250,3 +291,37 @@ def cleanup():
     # Delete tool
     delete_tool(tool_id)
     print("[sandbox_manager] Cleanup complete")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "create":
+            tool_id = create_or_get_tool()
+            print(f"Tool ready: {tool_id}")
+        elif cmd == "start":
+            tool_id = create_or_get_tool()
+            instance_id = start_instance(tool_id)
+            wait_for_ready(instance_id)
+            token = get_access_token(instance_id)
+            print(f"Instance: {instance_id}")
+            print(f"Token: {token}")
+        elif cmd == "stop-all":
+            stop_all_instances()
+        elif cmd == "cleanup":
+            cleanup()
+        elif cmd == "list":
+            client = get_client()
+            req = models.DescribeSandboxToolListRequest()
+            req.Limit = 100
+            req.Offset = 0
+            resp = client.DescribeSandboxToolList(req)
+            if resp.SandboxToolSet:
+                for tool in resp.SandboxToolSet:
+                    print(f"  {tool.ToolId} | {tool.ToolName} | {tool.Status}")
+        else:
+            print(f"Unknown command: {cmd}")
+            print("Usage: python sandbox_manager.py [create|start|stop-all|cleanup|list]")
+    else:
+        print("Usage: python sandbox_manager.py [create|start|stop-all|cleanup|list]")

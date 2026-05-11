@@ -34,20 +34,20 @@ export TENCENTCLOUD_REGION="ap-beijing"
 
 ### 3. 构建并推送 Docker 镜像
 
-首次使用（或更新沙箱镜像时）：
+项目使用两个镜像：
 
 ```bash
 # 登录 TCR
 docker login lily-tcr.tencentcloudcr.com --username <用户名> --password <令牌>
 
-# 构建镜像
-make build
+# 构建基础镜像（包含 cmd_server + 测试文件）
+docker build -t lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:v6 .
+docker push lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench:v6
 
-# 推送到仓库
-make push
+# 构建任务镜像（用于 StorageVolume 挂载）
+docker build -t lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1 -f Dockerfile .
+docker push lily-tcr.tencentcloudcr.com/terminalbench/terminal-bench-task:v1
 ```
-
-Dockerfile 创建了一个最小化的 ubuntu:24.04 镜像，包含 python3、curl、wget、git 和命令执行服务。
 
 ### 4. TCR 命名空间
 
@@ -66,18 +66,31 @@ ROLE_ARN = "qcs::cam::uin/<your_uin>:roleName/<your_role>"
 ### 完整运行
 
 ```bash
-make run
+cd src && python3 -u run_bench.py
 ```
 
-或直接：
+### 使用 sandbox_manager CLI
 
 ```bash
-cd src && python run_bench.py
+# 创建/查找工具
+cd src && python3 sandbox_manager.py create
+
+# 启动实例并获取 token
+cd src && python3 sandbox_manager.py start
+
+# 列出所有工具
+cd src && python3 sandbox_manager.py list
+
+# 停止所有实例
+cd src && python3 sandbox_manager.py stop-all
+
+# 清理（停止实例 + 删除工具）
+cd src && python3 sandbox_manager.py cleanup
 ```
 
 ### 执行过程
 
-1. **创建工具** — 创建 AGS 沙箱工具（已存在则跳过）
+1. **创建工具** — 创建 AGS 沙箱工具，配置基础镜像 + StorageVolume（已存在则跳过）
 2. **启动实例** — 从工具启动沙箱容器
 3. **等待就绪** — 轮询直到实例 RUNNING 且健康检查通过
 4. **Agent 执行** — LLM Agent 接收任务指令并开始执行命令
@@ -93,8 +106,7 @@ Using Tencent Cloud AGS + kimi-k2.5
 ============================================================
 
 [main] Step 1: Creating/finding sandbox tool...
-[sandbox_manager] Found existing tool: sdt-xxxxxxxx
-[main] Tool ID: sdt-xxxxxxxx
+[sandbox_manager] Found existing tool: sdt-37khr366 (status: ACTIVE)
 
 [main] Step 2: Starting sandbox instance...
 [sandbox_manager] Instance started: <instance_id>
@@ -102,37 +114,27 @@ Using Tencent Cloud AGS + kimi-k2.5
 [main] Step 3: Waiting for instance to be ready...
 [sandbox_manager] Instance ... status: RUNNING
 
-[main] Step 4: Acquiring access token...
-[main] Step 5: Connecting to sandbox...
-[main] Sandbox health check passed
-
 [main] Step 6: Running agent...
-[agent] Step 1/50 (elapsed: 0s)
-[agent] Executing: uname -a && mkdir -p /tmp/CompCert
-...
-（Agent 执行约 15-30 步，耗时 15-40 分钟）
+[agent] Step 1/50 - uname -a (检测 x86_64 Ubuntu 24.04)
+[agent] Step 2/50 - mkdir -p /tmp/CompCert
+[agent] Step 3/50 - apt-get install ocaml coq menhir ... (安装依赖)
+[agent] Step 4/50 - wget CompCert v3.13.1 源码
+[agent] Step 5/50 - ./configure x86_64-linux
+[agent] Step 6+   - make (编译 15-25 分钟)
 ...
 [agent] Agent finished: Task is complete.
 
 [main] Step 7: Running verifier...
-[verifier] Uploading test files...
-[verifier] Running verification tests...
 [verifier] Reward: 1
 
 ============================================================
 RESULT: PASS
-Agent time: 1234s
+Agent time: ~1200-1800s
 Reward: 1
 ============================================================
 ```
 
-### 清理资源
-
-```bash
-make clean
-```
-
-停止所有运行中的实例并删除沙箱工具。
+> 完整执行约 20-40 分钟（主要耗时在 CompCert 编译）。
 
 ## 自定义配置
 
@@ -151,11 +153,9 @@ model="your-model-name"
 
 ### 更换任务
 
-编辑 `src/run_bench.py` 中的 `INSTRUCTION` 变量：
-
-```python
-INSTRUCTION = """你的自定义任务指令"""
-```
+1. 修改 `instruction.md` 中的任务指令
+2. 更新 `src/tests/` 中的验证测试文件
+3. 重新构建并推送任务镜像
 
 ### 调整超时
 
