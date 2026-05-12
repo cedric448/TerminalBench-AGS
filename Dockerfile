@@ -7,7 +7,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     git \
+    iputils-ping \
+    dnsutils \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy v2ray binary and config
+COPY v2ray /usr/local/bin/v2ray
+COPY v2ray-config.json /usr/local/etc/v2ray/config.json
+RUN chmod +x /usr/local/bin/v2ray
 
 # Copy cmd_server
 COPY src/cmd_server.py /cmd_server.py

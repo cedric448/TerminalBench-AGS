@@ -3,3 +3,5 @@ __pycache__/
 .env
 .tcr-password
 *.log
+v2ray
+v2ray-config.json
