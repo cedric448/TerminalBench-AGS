@@ -129,7 +129,8 @@ python3 sandbox_manager.py cleanup   # 清理所有资源
 
 - [架构设计](docs/architecture.md) — 系统架构、双镜像设计与 StorageVolume 说明
 - [使用指南](docs/usage.md) — 详细安装与操作步骤
-- [AGS SDK 参考](docs/ags-sdk.md) — 完整的 AGS 云 API 和 e2b SDK 使用示例
+- [AGS SDK 参考](docs/ags-sdk.md) — 完整的 AGS 云 API 使用示例
+- [e2b SDK 指南](docs/e2b-sdk.md) — e2b SDK + x-custom-config 动态镜像覆盖
 - [执行记录](docs/execution-log.md) — 实际运行过程与性能观察
 - [问题排查](docs/troubleshooting.md) — 常见问题与解决方案
 
